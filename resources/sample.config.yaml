@@ -1,0 +1,20 @@
+flexget:
+  dropped_slug: dropped-shows
+trakt:
+  access_token: 1234
+  refresh_token: 1234
+  username: username
+  client_id: 1234
+  domain: api.trakt.tv
+  redirect_uri: 'urn:ietf:wg:oauth:2.0:oob'
+  client_secret: 1234
+transmission:
+  destination:
+    movie: /data/Movies/
+    show: /data/TV/
+  downloads: /var/lib/transmission/downloads/
+  tracker:
+    movie:
+      - movietracker.com
+    show:
+      - showtracker.com
