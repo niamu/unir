@@ -2,15 +2,23 @@
   (:require [unir.config :refer [config]]
             [unir.json :as json]
             [clojure.string :as string]
-            [planck.http :as http]))
+            #?(:clj [clj-http.client :as http]
+               :cljs [planck.http :as http]))
+  #?(:clj (:import [java.lang Exception])))
 
-(def url "http://10.0.0.10:9091/transmission/rpc")
+(def url
+  (str "http://"
+       (get-in @config [:transmission :hostname])
+       ":9091/transmission/rpc"))
 
 (defn rpc
   ([method args]
-   (let [response (http/get url)]
-     (rpc method args
-          (get-in response [:headers :X-Transmission-Session-Id]))))
+   (if-let [session-id (try (-> (http/get url)
+                                (get-in [:headers :X-Transmission-Session-Id]))
+                            (catch #?(:clj Exception :cljs js/Error) e
+                              (get-in (.getData e)
+                                      [:headers :X-Transmission-Session-Id])))]
+     (rpc method args session-id)))
   ([method args sessionid]
    (let [response (http/post url
                              {:headers {:X-Transmission-Session-Id sessionid}
@@ -22,15 +30,11 @@
        409 (rpc method args
                 (get-in response [:headers :X-Transmission-Session-Id]))
        (try
-         (if-let [r (-> (:body response)
-                        json/read-str
-                        :arguments
-                        :torrents)]
-           (if-not (empty? r)
-             r
-             (rpc method args sessionid))
-           (rpc method args sessionid))
-         (catch js/Error e
+         (-> (:body response)
+             json/read-str
+             :arguments
+             :torrents)
+         (catch #?(:clj Exception :cljs js/Error) e
            (rpc method args sessionid)))))))
 
 (defn torrents
@@ -50,13 +54,12 @@
 
 (defn file-completed?
   [file]
-  (filter #(= (:bytesCompleted %)
-              (:length %))
-          file))
+  (= (:bytesCompleted file)
+     (:length file)))
 
 (defn show?
   [trackers]
-  (let [show-trackers (-> config :transmission :tracker :show)]
+  (let [show-trackers (-> @config :transmission :tracker :show)]
     (-> (some (fn [show-tracker]
                 (some #(string/includes? % show-tracker) trackers))
               show-trackers)
@@ -64,7 +67,7 @@
 
 (defn movie?
   [trackers]
-  (let [movie-trackers (-> config :transmission :tracker :movie)]
+  (let [movie-trackers (-> @config :transmission :tracker :movie)]
     (-> (some (fn [movie-tracker]
                 (some #(string/includes? % movie-tracker) trackers))
               movie-trackers)

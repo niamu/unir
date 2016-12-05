@@ -10,7 +10,7 @@
 
 (defn url
   [^String domain & [path]]
-  (str "https://" domain "/"
+  (str domain
        (->> path
             (remove #(or (nil? %) (= "" %)))
             (map #(if (keyword? %) (name %) %))
@@ -47,19 +47,9 @@
             :get http/get
             :post http/post
             http/get)
-          (url (:domain credentials) path)
+          (url (:api-url credentials) path)
           (merge (if (contains? data :body)
                    (assoc data :body (json/write-str (:body data)))
                    data)
                  options))
          (handler-fn [method credentials path data handler-fn])))))
-
-(defn refresh-token
-  [credentials]
-  (request :post credentials [:oauth :token]
-           {:body
-            {:refresh_token (:refresh_token credentials)
-             :client_id (:client_id credentials)
-             :client_secret (:client_secret credentials)
-             :redirect_uri "urn:ietf:wg:oauth:2.0:oob"
-             :grant_type "refresh_token"}}))

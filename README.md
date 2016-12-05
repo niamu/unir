@@ -3,8 +3,7 @@
 `Unir` is Spanish for `Unite`
 >to join together to do or achieve something
 
-Unir is a Clojurescript application intended to be executed with
-[planck](http://planck-repl.org) that automates TV and Movie sorting.
+Unir is a Clojure(script) application that automates TV and Movie sorting.
 
 ## Overview
 

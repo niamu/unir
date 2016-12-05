@@ -1,28 +1,33 @@
 (ns unir.core
+  (:refer-clojure :exclude [read-string test])
   (:require [unir.config :refer [config spit-config!]]
             [unir.yaml :as yaml]
             [unir.transmission :as transmission]
             [unir.flexget :refer [refresh-series!]]
             [clj-trakt.core :as trakt]
+            [clj-trakt.auth :as auth]
             [clj-trakt.users :as users]
             [clj-trakt.episodes :as episodes]
             [clojure.string :as string]
-            [cljs.reader :refer [read-string]]
-            [cljs.pprint :refer [cl-format]]
-            [planck.shell :refer [sh]]))
+            [#?(:clj clojure.edn :cljs cljs.reader) :refer [read-string]]
+            [#?(:clj clojure.pprint :cljs cljs.pprint) :refer [cl-format]]
+            #?(:clj [me.raynes.conch.low-level :as sh]
+               :cljs [planck.shell :refer [sh]])))
+
+(defn shell
+  [& args]
+  #?(:clj (sh/stream-to-string (apply sh/proc args) :out)
+     :cljs (:out (apply sh args))))
 
 (def env
-  (as-> (:out (sh "env")) e
+  (as-> (shell "env") e
     (string/split e #"\n")
     (map #(string/split % #"=" 2) e)
     (into {} e)))
 
-(def credentials
-  (:trakt @config))
-
 (defn refresh-token!
   []
-  (->> (trakt/refresh-token (:trakt @config))
+  (->> (auth/refresh-token (:trakt @config))
        (merge (:trakt @config))
        (assoc @config :trakt)
        (reset! config)
@@ -30,16 +35,20 @@
 
 (defn symlink?
   [filename]
-  (= 0 (:exit (sh "test" "-h" filename))))
+  (= 0 (-> (apply #?(:clj sh/proc :cljs sh)
+                  ["test" "-h" (str (-> @config :transmission :downloads)
+                                    filename)])
+           #?(:clj sh/exit-code
+              :cljs :exit))))
 
 (defn link
   [source destination]
-  (sh "mv" source destination)
-  (sh "ln" "-s" destination source))
+  (shell "mv" source destination)
+  (shell "ln" "-s" destination source))
 
 (defn process-movie
   [torrent]
-  (let [watchlist (users/watchlist credentials :me)
+  (let [watchlist (users/watchlist (:trakt @config) :me)
         movies (->> (filter #(= "movie" (:type %)) watchlist)
                     (map :movie))
         moviefile (sort-by :length (:files torrent))
@@ -55,19 +64,24 @@
                          "." (last (string/split (:name moviefile) #"\.")))]
     (link source destination)))
 
+(defn trim-leading-zeroes
+  [s]
+  (string/replace s #"^0+" ""))
+
 (defn production-code
   [torrent-name]
   (->> (re-find #"[sS]([0-9]+)[eE]([0-9]+)" torrent-name)
        (drop 1)
-       (map read-string)))
+       (map (comp read-string trim-leading-zeroes))))
 
 (defn process-episode
   [show file]
   (when (and (transmission/file-completed? file)
-             (re-matches #"[.](mkv|mov|mp4|avi)$" (:name file))
+             (some #(string/ends-with? (:name file) %)
+                   ["mkv" "mov" "mp4" "avi"])
              (not (symlink? (:name file))))
     (let [code (production-code (:name file))
-          episode (episodes/summary credentials (get-in show [:ids :slug])
+          episode (episodes/summary (:trakt @config) (get-in show [:ids :slug])
                                     (first code) (second code))
           source (str (get-in @config [:transmission :downloads]) (:name file))
           destination (str (get-in @config [:transmission :destination :show])
@@ -85,17 +99,20 @@
 
 (defn process-show
   [torrent]
-  (let [watchlist (users/watchlist credentials :me)
-        shows-watched (users/watched credentials :me :shows true)
-        shows (->> (merge shows-watched
-                          (filter #(= "show" (:type %)) watchlist))
+  (let [watchlist (users/watchlist (:trakt @config) :me)
+        shows-watched (users/watched (:trakt @config) :me :shows true)
+        shows (->> (apply merge
+                          shows-watched
+                          (filter #(contains? % :show) watchlist))
                    (map :show))
         show (->> shows
-                  (filter #(string/includes? (:clean-name torrent)
-                                             (string/replace (:title %)
-                                                             #"[:()?']" "")))
+                  (filter #(apply string/includes?
+                                  [(string/lower-case (:clean-name torrent))
+                                   (string/replace (-> (:title %)
+                                                       string/lower-case)
+                                                   #"[:()?']" "")]))
                   first)]
-    (map #(process-episode show %) (:files torrent))))
+    (doall (map #(process-episode show %) (:files torrent)))))
 
 (defn process
   [torrent-name]
@@ -109,6 +126,6 @@
       :movie (process-movie torrent))))
 
 (defn -main
-  [torrent-name]
+  [& [torrent-name]]
   (refresh-token!)
   (process torrent-name))

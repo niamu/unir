@@ -1,6 +1,6 @@
 (ns unir.config
   (:require [unir.yaml :as yaml]
-            [planck.core :refer [slurp spit]]))
+            #?(:cljs [planck.core :refer [slurp spit]])))
 
 (def config
   (atom (-> (slurp "resources/config.yaml")
