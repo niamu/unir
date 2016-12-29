@@ -1,6 +1,7 @@
 (ns unir.transmission
   (:require [unir.config :refer [config]]
             [unir.json :as json]
+            [unir.rules :as rules]
             [clojure.string :as string]
             #?(:clj [clj-http.client :as http]
                :cljs [planck.http :as http]))
@@ -76,15 +77,6 @@
 (defn media-type
   [torrent]
   (let [trackers (->> torrent :trackers (map :announce))]
-    (assoc torrent :media-type
-           (cond
-             (movie? trackers) :movie
-             (show? trackers) :show))))
-
-(defn normalize-torrent
-  "Add :clean-name and :media-type"
-  [torrent]
-  (when (:name torrent)
-    (-> torrent
-        media-type
-        (assoc :clean-name (string/replace (:name torrent) #"[._]" " ")))))
+    (cond
+      (movie? trackers) :movie
+      (show? trackers) :show)))

@@ -1,4 +1,5 @@
 (ns unir.flexget
+  #?(:clj (:gen-class))
   (:require [unir.config :refer [config]]
             [unir.yaml :as yaml]
             [clj-trakt.users :as users]
@@ -19,6 +20,7 @@
 (defn refresh-series!
   []
   (let [watchlist (->> (users/watchlist (:trakt @config) :me :shows)
+                       (filter #(contains? % :show))
                        (filter returning?)
                        (map #(get-in % [:show :title])))
         watched (->> (users/watched (:trakt @config) :me :shows)
@@ -29,9 +31,10 @@
                            (map #(get-in % [:show :title])))]
     (->> (difference (set (apply merge watchlist watched))
                      (set dropped-shows))
+         vec
          (assoc-in {} [:series :720p])
          yaml/dump
-         (spit "resources/series.yaml"))))
+         (spit (-> @config :flexget :series-file)))))
 
 (defn -main
   []
